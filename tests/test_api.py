@@ -65,7 +65,7 @@ def web_client(client, adult_like, cfg):
 def test_index_serves_the_web_app(client):
     r = client.get("/")
     assert r.status_code == 200
-    assert "<title>Income Model</title>" in r.text
+    assert "<title>ML Income Predictor</title>" in r.text
 
 
 def test_schema_lists_model_inputs_only(web_client):

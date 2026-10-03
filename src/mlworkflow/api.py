@@ -134,7 +134,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="Adult income model", lifespan=lifespan)
+app = FastAPI(title="ML Income Predictor", lifespan=lifespan)
 
 
 def log_requests(df: pd.DataFrame, proba, version: str | None) -> None:
