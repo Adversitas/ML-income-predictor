@@ -1,0 +1,32 @@
+experiment: adult-income
+model_name: adult-income
+
+data:
+  openml_id: 1590          # UCI Adult, 48,842 rows
+  target: class
+  positive_label: ">50K"
+  # fnlwgt is a census sampling weight, not a property of the person.
+  # race and sex are kept out of the features and used only to audit the model per group.
+  exclude_features: [fnlwgt, race, sex]
+  slice_columns: [sex, race]
+  test_size: 0.2
+  val_size: 0.2            # fraction of the remaining data
+  seed: 42
+
+# Candidates trained on every run; the best one on validation goes forward.
+models:
+  baseline: {}             # predicts the base rate: the floor every model must beat
+  logreg:
+    C: 1.0
+  hgb:
+    learning_rate: 0.05
+    max_iter: 400
+    max_leaf_nodes: 31
+    l2_regularization: 1.0
+
+promotion:
+  metric: roc_auc
+  min_improvement: 0.002   # challenger must beat the champion by this on the same test set
+
+monitoring:
+  psi_threshold: 0.2       # PSI above this on any feature counts as drift

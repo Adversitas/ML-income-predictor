@@ -1,0 +1,66 @@
+# docker compose up -d --build          -> MLflow (5000), Prefect (4200), API (8000)
+# docker compose run --rm jobs mlwf train
+# docker compose run --rm jobs pytest
+x-app: &app
+  image: ml-workflow:latest
+  environment:
+    MLFLOW_TRACKING_URI: http://mlflow:5000
+    PREFECT_API_URL: http://prefect:4200/api
+
+services:
+  mlflow:
+    build: .
+    image: ml-workflow:latest
+    command: >
+      mlflow server --host 0.0.0.0 --port 5000
+      --backend-store-uri sqlite:////mlruns/mlflow.db
+      --artifacts-destination /mlruns/artifacts
+      --allowed-hosts "*"
+    ports: ["5000:5000"]
+    volumes: [mlruns:/mlruns]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:5000/health')"]
+      interval: 5s
+      retries: 20
+
+  prefect:
+    image: ml-workflow:latest
+    command: prefect server start --host 0.0.0.0
+    ports: ["4200:4200"]
+    volumes: [prefect:/root/.prefect]
+    depends_on: [mlflow]   # only so the image is built first
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:4200/api/health')"]
+      interval: 5s
+      retries: 20
+
+  api:
+    <<: *app
+    command: uvicorn mlworkflow.api:app --host 0.0.0.0 --port 8000
+    ports: ["8000:8000"]
+    volumes: [./data:/app/data]
+    depends_on:
+      mlflow: {condition: service_healthy}
+
+  # One-off jobs: train, drift, traffic, tests. The project is mounted so code edits need no rebuild.
+  jobs:
+    <<: *app
+    profiles: [jobs]
+    volumes: [.:/app]
+    depends_on:
+      mlflow: {condition: service_healthy}
+      prefect: {condition: service_healthy}
+
+  # Long-running scheduler: weekly retrain + hourly drift check.
+  scheduler:
+    <<: *app
+    profiles: [scheduler]
+    command: mlwf schedule
+    volumes: [./data:/app/data]
+    depends_on:
+      mlflow: {condition: service_healthy}
+      prefect: {condition: service_healthy}
+
+volumes:
+  mlruns:
+  prefect:
