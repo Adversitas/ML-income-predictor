@@ -9,20 +9,14 @@ from mlworkflow.config import DEFAULT_CONFIG
 
 
 def send_traffic(api_url: str, n: int, drift: bool, config_path: str) -> None:
-    """Replay held-out rows against the API, optionally shifted to simulate a changed population."""
+    """Replay held-out rows against the API."""
     import httpx
-    import pandas as pd
 
     from mlworkflow.config import load_config
-    from mlworkflow.data import split
+    from mlworkflow.data import sample_traffic
 
-    cfg = load_config(config_path)
-    test = split(pd.read_parquet(cfg.raw_path), cfg).X_test.sample(n, random_state=0)
-    if drift:
-        # An older, longer-working population: shifts two features the model relies on.
-        test["age"] = (test["age"] + 15).clip(upper=90)
-        test["hours-per-week"] = (test["hours-per-week"] * 1.3).clip(upper=99).round()
-    records = json.loads(test.to_json(orient="records"))
+    rows = sample_traffic(load_config(config_path), n, drift, seed=0)
+    records = json.loads(rows.to_json(orient="records"))
     with httpx.Client(base_url=api_url, timeout=30) as client:
         for start in range(0, len(records), 100):
             r = client.post("/predict", json={"records": records[start:start + 100]})

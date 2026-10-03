@@ -1,4 +1,5 @@
-# docker compose up -d --build          -> MLflow (5000), Prefect (4200), API (8000)
+# Double-click start.bat, or:
+# docker compose up -d --build          -> MLflow (5000), Prefect (4200), web app + API (8000)
 # docker compose run --rm jobs mlwf train
 # docker compose run --rm jobs pytest
 x-app: &app
@@ -17,6 +18,7 @@ services:
       --artifacts-destination /mlruns/artifacts
       --allowed-hosts "*"
     ports: ["5000:5000"]
+    restart: unless-stopped
     volumes: [mlruns:/mlruns]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:5000/health')"]
@@ -27,6 +29,7 @@ services:
     image: ml-workflow:latest
     command: prefect server start --host 0.0.0.0
     ports: ["4200:4200"]
+    restart: unless-stopped
     volumes: [prefect:/root/.prefect]
     depends_on: [mlflow]   # only so the image is built first
     healthcheck:
@@ -34,13 +37,16 @@ services:
       interval: 5s
       retries: 20
 
+  # Web app + prediction API. The UI's Retrain button runs the training flow in this container.
   api:
     <<: *app
     command: uvicorn mlworkflow.api:app --host 0.0.0.0 --port 8000
     ports: ["8000:8000"]
-    volumes: [./data:/app/data]
+    volumes: [./data:/app/data, ./configs:/app/configs]
+    restart: unless-stopped
     depends_on:
       mlflow: {condition: service_healthy}
+      prefect: {condition: service_healthy}
 
   # One-off jobs: train, drift, traffic, tests. The project is mounted so code edits need no rebuild.
   jobs:

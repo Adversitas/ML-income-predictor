@@ -48,3 +48,50 @@ def test_no_model_returns_503(client):
     api.holder.set(None, None, 0.5)
     assert client.post("/predict", json={"records": [RECORD]}).status_code == 503
     assert client.get("/health").json()["model_loaded"] is False
+
+
+@pytest.fixture
+def web_client(client, adult_like, cfg):
+    """API client with the raw snapshot and training reference on disk, as after a pipeline run."""
+    cfg.raw_path.parent.mkdir(parents=True, exist_ok=True)
+    adult_like.to_parquet(cfg.raw_path, index=False)
+    cfg.reference_path.parent.mkdir(parents=True, exist_ok=True)
+    split(adult_like, cfg).X_train.to_parquet(cfg.reference_path, index=False)
+    api._test_split.cache_clear()
+    yield client
+    api._test_split.cache_clear()
+
+
+def test_index_serves_the_web_app(client):
+    r = client.get("/")
+    assert r.status_code == 200
+    assert "<title>Income Model</title>" in r.text
+
+
+def test_schema_lists_model_inputs_only(web_client):
+    fields = {f["name"]: f for f in web_client.get("/api/schema").json()["fields"]}
+    assert not {"fnlwgt", "race", "sex"} & set(fields)
+    assert fields["age"]["type"] == "number"
+    assert "Private" in fields["workclass"]["options"]
+
+
+def test_example_can_be_scored(web_client):
+    ex = web_client.get("/api/example").json()
+    assert ex["actual"] in (0, 1)
+    assert web_client.post("/predict", json={"records": [ex["record"]]}).status_code == 200
+
+
+def test_traffic_then_drift_check(web_client):
+    assert web_client.post("/api/drift").status_code == 409  # nothing logged yet
+
+    web_client.post("/api/traffic", json={"n": 300, "drift": False})
+    clean = web_client.post("/api/drift").json()
+    assert clean["log"]["requests"] == 300
+    assert not clean["report"]["drift_detected"]
+
+    web_client.delete("/api/requests")
+    web_client.post("/api/traffic", json={"n": 300, "drift": True})
+    shifted = web_client.post("/api/drift").json()
+    assert "age" in shifted["report"]["drifted_features"]
+
+    assert web_client.delete("/api/requests").json() == {"log": {"requests": 0}, "report": None}

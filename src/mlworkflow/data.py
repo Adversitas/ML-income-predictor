@@ -65,3 +65,14 @@ def split(df: pd.DataFrame, cfg: Config) -> Splits:
         X_rest, y_rest, test_size=d.val_size, stratify=y_rest, random_state=d.seed
     )
     return Splits(X_train, y_train, X_val, y_val, X_test, y_test)
+
+
+def sample_traffic(cfg: Config, n: int, drift: bool = False, seed: int | None = None) -> pd.DataFrame:
+    """Held-out rows to replay as traffic, optionally shifted to simulate a changed population."""
+    test = split(pd.read_parquet(cfg.raw_path), cfg).X_test
+    rows = test.sample(min(n, len(test)), random_state=seed).copy()
+    if drift:
+        # An older, longer-working population: shifts two features the model relies on.
+        rows["age"] = (rows["age"] + 15).clip(upper=90)
+        rows["hours-per-week"] = (rows["hours-per-week"] * 1.3).clip(upper=99).round()
+    return rows

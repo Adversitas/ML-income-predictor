@@ -25,7 +25,7 @@ from mlworkflow import data as data_mod
 from mlworkflow.config import DEFAULT_CONFIG, Config, load_config
 from mlworkflow.evaluate import best_f1_threshold, classification_metrics, slice_metrics
 from mlworkflow.features import SKOPS_TRUSTED_TYPES, build_model, feature_columns
-from mlworkflow.monitor import drift_report
+from mlworkflow.monitor import run_drift_check
 from mlworkflow.registry import CHAMPION, get_champion
 from mlworkflow.validate import validate
 
@@ -183,19 +183,7 @@ def drift_flow(config_path: str = str(DEFAULT_CONFIG), last_n: int | None = None
     """Compare logged inference requests with the training reference."""
     cfg = load_config(config_path)
     logger = get_run_logger()
-    if not cfg.inference_log.exists():
-        raise FileNotFoundError(f"no inference log at {cfg.inference_log}; send traffic first")
-
-    reference = pd.read_parquet(cfg.reference_path)
-    reference = reference.drop(columns=[c for c in cfg.data.exclude_features if c in reference])
-    current = pd.read_json(cfg.inference_log, lines=True)
-    if last_n:
-        current = current.tail(last_n)
-    report = drift_report(reference, current, cfg.monitoring.psi_threshold)
-
-    out = cfg.data_dir / "monitoring" / "drift_report.json"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    report = run_drift_check(cfg, last_n)
     if report["drift_detected"]:
         # With fresh labelled data this is where retraining would be triggered.
         logger.warning("drift detected in %s", report["drifted_features"])

@@ -29,6 +29,9 @@ mlwf = "mlworkflow.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+mlworkflow = ["web/*.html"]
+
 [tool.ruff]
 line-length = 110
 target-version = "py311"

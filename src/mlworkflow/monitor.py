@@ -5,8 +5,12 @@ Rule of thumb: PSI < 0.1 stable, 0.1-0.2 moderate shift, > 0.2 significant shift
 
 from __future__ import annotations
 
+import json
+
 import numpy as np
 import pandas as pd
+
+from mlworkflow.config import Config
 
 EPS = 1e-4
 
@@ -55,3 +59,23 @@ def drift_report(reference: pd.DataFrame, current: pd.DataFrame, threshold: floa
         "drifted_features": drifted,
         "features": features,
     }
+
+
+def report_path(cfg: Config):
+    return cfg.data_dir / "monitoring" / "drift_report.json"
+
+
+def run_drift_check(cfg: Config, last_n: int | None = None) -> dict:
+    """Compare logged inference requests with the training reference and save the report."""
+    if not cfg.inference_log.exists() or cfg.inference_log.stat().st_size == 0:
+        raise FileNotFoundError(f"no inference requests logged at {cfg.inference_log}; send traffic first")
+    reference = pd.read_parquet(cfg.reference_path)
+    reference = reference.drop(columns=[c for c in cfg.data.exclude_features if c in reference])
+    current = pd.read_json(cfg.inference_log, lines=True)
+    if last_n:
+        current = current.tail(last_n)
+    report = drift_report(reference, current, cfg.monitoring.psi_threshold)
+    out = report_path(cfg)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    return report

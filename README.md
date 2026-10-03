@@ -30,6 +30,7 @@ flowchart LR
 | Experiment tracking, model registry | MLflow 3 (SQLite backend, proxied artifact store) |
 | Models | scikit-learn pipelines (preprocessing is inside the saved model) |
 | Serving | FastAPI with pydantic input validation, hot reload of the champion |
+| Web app | Single-page UI served by the API: predict, inspect the model, simulate traffic, check drift, retrain |
 | Monitoring | Population Stability Index on every feature against the training data |
 | Packaging, CI | Docker Compose, GitHub Actions (ruff, pytest, image build) |
 
@@ -109,16 +110,37 @@ Only the two shifted features cross the 0.2 threshold, and clean traffic raises 
 - **Registry aliases, not stages.** The API loads `models:/adult-income@champion`, and
   `POST /reload` picks up a newly promoted version without a restart.
 
+## Web app
+
+The API also serves a browser UI at http://localhost:8000 with three tabs:
+
+- **Predict:** fill in a person, or load a real one from the held-out test set to see the
+  prediction next to what actually happened. The probability is shown against the decision threshold.
+- **Model:** the serving champion's test metrics, the candidate comparison, the registry history
+  with each version's gate decision, and the per-group audit. **Retrain** runs the full
+  train-and-promote flow in the background and reports whether the new version was promoted.
+- **Monitoring:** replay 500 held-out people as normal or shifted traffic, run the drift check,
+  and see the PSI of every feature against the 0.2 threshold.
+
 ## Running it
 
-Everything runs in Docker, with no local Python environment needed.
+Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/). Everything runs in
+containers; no local Python environment is needed.
+
+**One click (Windows):** double-click `start.bat`. It starts Docker Desktop if needed, brings up
+MLflow, Prefect and the web app, trains the first model if none exists yet, and opens
+http://localhost:8000. The first run builds the image and takes a few minutes; later starts take
+seconds. `stop.bat` stops everything; models, runs and data are kept in Docker volumes and `data/`.
+
+**Manually (any OS):**
 
 ```bash
 docker compose up -d --build
 ```
 
-This starts MLflow on http://localhost:5000, Prefect on http://localhost:4200 and the API on
-http://localhost:8000/docs. Then train, reload the API, send traffic and check for drift:
+This starts MLflow on http://localhost:5000, Prefect on http://localhost:4200 and the web app on
+http://localhost:8000 (API docs at `/docs`). The same steps the UI offers are available from the
+command line:
 
 ```bash
 docker compose run --rm jobs mlwf train
@@ -164,9 +186,11 @@ src/mlworkflow/
   registry.py             champion lookup and loading
   pipeline.py             Prefect flows: train-and-promote, drift-check
   monitor.py              PSI drift report
-  api.py                  FastAPI service + request logging
+  api.py                  FastAPI service, request logging, web app endpoints
+  web/index.html          browser UI (plain HTML/JS, no build step)
   cli.py                  mlwf train | drift | traffic | schedule
-tests/                    19 tests: validation, models, drift, API (no services needed)
+scripts/start.ps1         one-click start (called by start.bat)
+tests/                    23 tests: validation, models, drift, API, web endpoints (no services needed)
 ```
 
 ## Limitations and next steps
